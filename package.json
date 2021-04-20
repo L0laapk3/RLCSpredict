@@ -1,0 +1,16 @@
+{
+  "name": "rlcs-predict",
+  "version": "1.0.0",
+  "description": "",
+  "main": "predict.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "got": "~11.8.2",
+    "promise-workers": "~2.0.2",
+    "ts-trueskill": "~3.2.1"
+  }
+}
