@@ -4,7 +4,7 @@ const assert = require('assert');
 
 const got = require('got');
 const { PromiseWorker } = require('promise-workers');
-const ts = new (require('ts-trueskill').TrueSkill)(undefined, undefined, undefined, 25/3/100/5, 0);
+const ts = new (require('ts-trueskill').TrueSkill)(undefined, undefined, undefined, 25/3/100/8, 0);
 
 
 function prompt(query) {
@@ -28,7 +28,6 @@ function winProbabilityInterval(ts, a, b, confidence) {
 	
 	const sigmaOffsetMul = ts.guassian.ppf(confidence / 2 + .5);
 	const sigmaOffset = Math.sqrt(sumSigma / playerCount) * sigmaOffsetMul;
-	console.log(Math.sqrt(sumSigma) / denominator);
 	return [ts.guassian.cdf((deltaMu - sigmaOffset) / denominator), ts.guassian.cdf((deltaMu + sigmaOffset) / denominator)];
 }
 
@@ -58,61 +57,83 @@ const threadP = new PromiseWorker(async resolve => {
 	const got = require('got');
 	const ts = new (require('ts-trueskill').TrueSkill)(workerData.mu, workerData.sigma, workerData.beta, workerData.tau, 0);
 	
-	const allMatches = JSON.parse(await fs.promises.readFile("allgames.json"));
+
+	let matchesJson;
+	try {
+		matchesJson = JSON.parse(await fs.promises.readFile("matches.json"));
+	} catch (ex) {
+		console.warn("Couldn't find the matches database. Downloading will take 5 minutes or so.");
+		matchesJson = {
+			lastDate: 0,
+			matches: [],
+		};
+	}
+	const allMatches = matchesJson.matches;
 	const allPlayers = {};
 
 	let additions = false;
 	let page = 0;
 	const perPage = 200;
-	const startDate = allMatches.length ? allMatches[allMatches.length-1].date : 0;
+	const startDate = matchesJson.lastDate;
 	while (true) {
 		const matches = (await got(`https://zsr.octane.gg/matches?sort=date:asc&after=${startDate}&perPage=${perPage}&page=${++page}`).json()).matches;
 		if (!matches)
 			break;
 		
-		for (let match of matches)
+		for (let match of matches) {
 			if (match.date && allMatches.every(m => match._id != m._id)) {
-				allMatches.push(match);
+				if (!match.format)
+					continue;
+				if (match.format.type != "best") {
+					console.log(match.format.type);
+					continue;
+				}
+				if (!match.games || !match.format)
+					continue;
+				if (!match.orange.players || !match.blue.players)
+					continue;
+				if (match.orange.players.length != 3 || match.blue.players.length != 3)
+					continue;
+				allMatches.push({
+					_id: match._id,
+					players: [match.blue.players, match.orange.players].map(l => l.map(p => p.player._id)),
+					games: match.games.map(m => ({
+						blue: m.blue,
+						orange: m.orange
+					})),
+				});
+				if (match.date)
+					matchesJson.lastDate = match.date;
 				additions = true;
 			}
+		}
 
 		if (matches.length < perPage)
 			break;
 
-		console.log("downloaded page ", page);
-		if (page % 10 == 0 && additions) {
-			fs.writeFile("allgames.json", JSON.stringify(allMatches), _ => {});
+		if (page % 5 == 0) {
+			console.log(`downloaded ${page*perPage} matches, currently at ${matchesJson.lastDate}`);
+			if (additions)
+				fs.writeFile("matches.json", JSON.stringify(matchesJson), _ => {});
 			additions = false;
 		}
 	}
 
-	if (additions)
-		fs.writeFile("allgames.json", JSON.stringify(allMatches), _ => {});
+	if (additions) {
+		console.log(`downloading finished`);
+		fs.writeFile("matches.json", JSON.stringify(matchesJson), _ => {});
+	}
 
-	for (let match of allMatches) {
-		if (!match.format)
-			continue;
-		if (match.format.type != "best") {
-			console.log(match.format.type);
-			continue;
-		}
-		if (!match.games || !match.format)
-			continue;
-		if (!match.orange.players || !match.blue.players)
-			continue;
-		if (match.orange.players.length != 3 || match.blue.players.length != 3)
-			continue;
-		const participants = [match.blue.players, match.orange.players].map(l => l.map(p => p.player._id));
-		
+	for (let match of allMatches) {		
 		for (const game of match.games) {
 			if (game.blue < game.orange)
-				participants.reverse();
-			results = ts.rate(participants.map(l => l.map(p => allPlayers[p] || ts.createRating())));
+				match.players.reverse();
+			results = ts.rate(match.players.map(l => l.map(p => allPlayers[p] || ts.createRating())));
 			for (let t = 0; t < 2; t++)
-				for (let i = 0; i < participants[t].length; i++)
-					allPlayers[participants[t][i]] = results[t][i];
+				for (let i = 0; i < match.players[t].length; i++)
+					allPlayers[match.players[t][i]] = results[t][i];
 			if (game.blue < game.orange)
-				participants.reverse();
+				match.players.reverse();
 			
 			// if ([].concat(...participants).includes("5f3d8fdd95f40596eae23dca"))
 			// 	console.log(allPlayers["5f3d8fdd95f40596eae23dca"].mu, allPlayers["5f3d8fdd95f40596eae23dca"].sigma);
@@ -177,18 +198,16 @@ for (const team of players)
 
 const playerRatings = pids.map(l => l.map(p => allPlayers[p]));
 
-const CONFIDENCE = 0.8;
 
-// console.log(`Confidence interval: ${CONFIDENCE.toString().substr(1)}`)
 
-const { p: p1, s: s1 } = winProbabilityCertainty(ts, playerRatings[0], playerRatings[1], CONFIDENCE);
+const { p: p1, s: s1 } = winProbabilityCertainty(ts, playerRatings[0], playerRatings[1]);
 
 for (let i = 1; i < 8; i += 2) {
 	let pN = 0;
 	// TODO: correlation https://fcic-static.law.stanford.edu/cdn_media/fcic-testimony/2010-0602-exhibit-binomial.pdf
 	for (let j = Math.ceil(i / 2); j <= i; j++)
 		pN += NChooseK(i, j) * Math.pow(p1, j) * Math.pow(1 - p1, i - j);
-	let sN = s1; // TODO
+	let sN = Math.sqrt(s1*s1*Math.sqrt(i)); // TODO i just made something up that seemed reasonable-ish
 	
 
 	const kelly = (p, b) => p - (1 - p) / b;
