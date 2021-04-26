@@ -4,6 +4,8 @@ const assert = require('assert');
 
 const got = require('got');
 const { PromiseWorker } = require('promise-workers');
+const { Abba } = require('abbajs');
+const Integral = require('sm-integral');
 const ts = new (require('ts-trueskill').TrueSkill)(undefined, undefined, undefined, 25/3/100/8, 0);
 
 
@@ -19,24 +21,25 @@ function prompt(query) {
 	}));
 }
 
-function winProbabilityInterval(ts, a, b, confidence) {
 
-	const deltaMu = a.reduce((t, cur) => t + cur.mu, 0) - b.reduce((t, cur) => t + cur.mu, 0);
-	const sumSigma = a.reduce((t, n) => n.sigma ** 2 + t, 0) + b.reduce((t, n) => n.sigma ** 2 + t, 0);
-	const playerCount = a.length + b.length;
-	const denominator = Math.sqrt(playerCount * (ts.beta * ts.beta + sumSigma));
-	
-	const sigmaOffsetMul = ts.guassian.ppf(confidence / 2 + .5);
-	const sigmaOffset = Math.sqrt(sumSigma / playerCount) * sigmaOffsetMul;
-	return [ts.guassian.cdf((deltaMu - sigmaOffset) / denominator), ts.guassian.cdf((deltaMu + sigmaOffset) / denominator)];
-}
-
+const N0 = new Abba.NormalDistribution(0, 1);
 function winProbabilityCertainty(ts, a, b) {
 	const deltaMu = a.reduce((t, cur) => t + cur.mu, 0) - b.reduce((t, cur) => t + cur.mu, 0);
 	const sumSigma = a.reduce((t, n) => n.sigma ** 2 + t, 0) + b.reduce((t, n) => n.sigma ** 2 + t, 0);
 	const playerCount = a.length + b.length;
-	const denominator = Math.sqrt(playerCount * (ts.beta * ts.beta + sumSigma));
-	return { p: ts.guassian.cdf(deltaMu / denominator), s: Math.sqrt(sumSigma) / denominator };
+	const denominator = Math.sqrt(playerCount * ts.beta * ts.beta + sumSigma);
+
+	const N = new Abba.NormalDistribution(deltaMu / denominator, Math.sqrt(sumSigma) / denominator);
+	const P = x => N.density(N0.inverseCdf(x));
+	const scale = Integral.integrate(P, 0, 1);
+	const PScale = x => P(x) / scale;
+	const mean = Integral.integrate(x => x * PScale(x), 0, 1);
+	const stddev = Math.sqrt(Integral.integrate(x => x**2 * PScale(x), 0, 1) - mean**2);
+
+	// console.log(N0.cdf(deltaMu / denominator), mean, stddev);
+	// N0.cdf(deltaMu / denominator) is supposed to be equal to mean but its not
+
+	return { p: N0.cdf(deltaMu / denominator), s: stddev };
 }
 
 
@@ -71,6 +74,7 @@ const threadP = new PromiseWorker(async resolve => {
 	const allMatches = matchesJson.matches;
 	const allPlayers = {};
 
+	const oldMatchCount = allMatches.length;
 	let additions = false;
 	let page = 0;
 	const perPage = 200;
@@ -120,7 +124,7 @@ const threadP = new PromiseWorker(async resolve => {
 	}
 
 	if (additions) {
-		console.log(`downloading finished`);
+		console.log(`downloaded ${allMatches.length - oldMatchCount} matches.`);
 		fs.writeFile("matches.json", JSON.stringify(matchesJson), _ => {});
 	}
 
@@ -135,8 +139,8 @@ const threadP = new PromiseWorker(async resolve => {
 			if (game.blue < game.orange)
 				match.players.reverse();
 			
-			// if ([].concat(...participants).includes("5f3d8fdd95f40596eae23dca"))
-			// 	console.log(allPlayers["5f3d8fdd95f40596eae23dca"].mu, allPlayers["5f3d8fdd95f40596eae23dca"].sigma);
+			// if ([].concat(...match.players).includes("5f3d8fdd95f40596eae23d9b"))
+			// 	console.log(allPlayers["5f3d8fdd95f40596eae23d9b"].mu, allPlayers["5f3d8fdd95f40596eae23d9b"].sigma);
 		}
 	}
 
@@ -188,12 +192,10 @@ const ratioScale = Math.sqrt(ratios.reduce((t, r) => t * (r - 1), 1));
 assert(ratioScale > 0.95 && ratioScale < 1.05);
 const returnFraq = ratios.map(r => (r - 1) / ratioScale);
 
+console.log(`${shortnames[0]} 1:${ratios[0].toFixed(3)} vs 1:${ratios[1].toFixed(3)} ${teams[1].name}`);
+
 await Promise.all(P2);
 const allPlayers = await updateP;
-
-for (const team of players)
-	for (const player of team)
-		console.log(`${player.tag.padStart(16)} ${allPlayers[player._id].mu.toFixed(2)} ${allPlayers[player._id].sigma.toFixed(2)}`);
 
 
 const playerRatings = pids.map(l => l.map(p => allPlayers[p]));
@@ -202,7 +204,7 @@ const playerRatings = pids.map(l => l.map(p => allPlayers[p]));
 
 const { p: p1, s: s1 } = winProbabilityCertainty(ts, playerRatings[0], playerRatings[1]);
 
-for (let i = 1; i < 8; i += 2) {
+for (let i = 5; i < 8; i += 2) {
 	let pN = 0;
 	// TODO: correlation https://fcic-static.law.stanford.edu/cdn_media/fcic-testimony/2010-0602-exhibit-binomial.pdf
 	for (let j = Math.ceil(i / 2); j <= i; j++)
@@ -218,8 +220,16 @@ for (let i = 1; i < 8; i += 2) {
 		bet = kelly(pK, b);
 		betOn = 1;
 	}
+
+	// https://www.researchgate.net/publication/262425087_Optimal_Betting_Under_Parameter_Uncertainty_Improving_the_Kelly_Criterion
+	const yoloBet = bet;
 	bet *= bet*bet / (bet*bet + ((b+1)/b)**2 * sN**2);
-	console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% on ${shortnames[betOn]}`);
+
+	console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
 }
+
+for (const team of players)
+	for (const player of team)
+		console.log(`${player.tag.padStart(16)} ${allPlayers[player._id].mu.toFixed(2)} ${allPlayers[player._id].sigma.toFixed(2)}`);
 
 })();
