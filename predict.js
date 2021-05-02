@@ -175,8 +175,12 @@ for (let i = 0; i < 2; i++) {
 		teams[i] = teamF.sort((a, b) => a.key - b.key)[0];
 		assert(teams[i]);
 		resolve(new Promise(async resolve => {
-			const lastGame = (await got("https://zsr.octane.gg/games?sort=date:desc&perPage=1&page=1&team=" + teams[i]._id).json()).games[0];
-			players[i] = (lastGame.blue.team.team._id == teams[i]._id ? lastGame.blue : lastGame.orange).players.map(p => p.player);
+			const lastGames = (await got("https://zsr.octane.gg/games?sort=date:desc&perPage=1&page=1&team=" + teams[i]._id).json()).games;
+			if (lastGames && lastGames.length > 0)
+				players[i] = (lastGames[0].blue.team.team._id == teams[i]._id ? lastGames[0].blue : lastGames[0].orange).players.map(p => p.player);
+			else 
+				players[i] = (await got("https://zsr.octane.gg/players?team=" + teams[i]._id).json()).players;
+			
 			assert(players[i].length == 3);
 			resolve();
 		}));
@@ -204,7 +208,7 @@ const playerRatings = pids.map(l => l.map(p => allPlayers[p]));
 
 const { p: p1, s: s1 } = winProbabilityCertainty(ts, playerRatings[0], playerRatings[1]);
 
-for (let i = 5; i < 8; i += 2) {
+for (let i = 1; i < 8; i += 2) {
 	let pN = 0;
 	// TODO: correlation https://fcic-static.law.stanford.edu/cdn_media/fcic-testimony/2010-0602-exhibit-binomial.pdf
 	for (let j = Math.ceil(i / 2); j <= i; j++)
