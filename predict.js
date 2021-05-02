@@ -196,7 +196,7 @@ const ratioScale = Math.sqrt(ratios.reduce((t, r) => t * (r - 1), 1));
 assert(ratioScale > 0.95 && ratioScale < 1.05);
 const returnFraq = ratios.map(r => (r - 1) / ratioScale);
 
-console.log(`${shortnames[0]} 1:${ratios[0].toFixed(3)} vs 1:${ratios[1].toFixed(3)} ${teams[1].name}`);
+console.log(`${shortnames[0]} 1:${(returnFraq[0]+1).toFixed(3)} vs 1:${(returnFraq[1]+1).toFixed(3)} ${teams[1].name}`);
 
 await Promise.all(P2);
 const allPlayers = await updateP;
