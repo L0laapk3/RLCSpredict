@@ -192,9 +192,14 @@ const pids = players.map(l => l.map(p => p._id));
 const ratios = [];
 for (let i = 0; i < 2; i++)
 	ratios.push(parseFloat(await prompt("team " + (i + 1) + " ratio: 1:")));
-const ratioScale = Math.sqrt(ratios.reduce((t, r) => t * (r - 1), 1));
-assert(ratioScale > 0.95 && ratioScale < 1.05);
-const returnFraq = ratios.map(r => (r - 1) / ratioScale);
+
+const adjSqrt = Math.sqrt(ratios[0]**2 + 2*ratios[0]*(ratios[1]-2) + (ratios[1]-4)*ratios[1]);
+const adjSol = [-1, 1].map(i => (i*adjSqrt - ratios[0] + ratios[1]) / 2).reduce((t, r) => Math.abs(r) > Math.abs(t) ? t : r, Infinity);
+assert(Math.abs(adjSol) < 0.02);
+ratios[0] += adjSol;
+ratios[1] -= adjSol;
+
+const returnFraq = ratios.map(r => r - 1);
 
 console.log(`${shortnames[0]} 1:${(returnFraq[0]+1).toFixed(3)} vs 1:${(returnFraq[1]+1).toFixed(3)} ${teams[1].name}`);
 
