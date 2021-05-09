@@ -195,7 +195,7 @@ for (let i = 0; i < 2; i++)
 
 const adjSqrt = Math.sqrt(ratios[0]**2 + 2*ratios[0]*(ratios[1]-2) + (ratios[1]-4)*ratios[1]);
 const adjSol = [-1, 1].map(i => (i*adjSqrt - ratios[0] + ratios[1]) / 2).reduce((t, r) => Math.abs(r) > Math.abs(t) ? t : r, Infinity);
-assert(Math.abs(adjSol) < 0.02);
+assert(Math.abs(adjSol) < 0.05);
 ratios[0] += adjSol;
 ratios[1] -= adjSol;
 
