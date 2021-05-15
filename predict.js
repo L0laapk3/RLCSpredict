@@ -189,57 +189,64 @@ for (let i = 0; i < 2; i++) {
 const P2 = await Promise.all(P);
 console.log(`${teams[0].name} vs ${teams[1].name}`);
 const pids = players.map(l => l.map(p => p._id));
-const ratios = [];
-for (let i = 0; i < 2; i++)
-	ratios.push(parseFloat(await prompt("team " + (i + 1) + " ratio: 1:")));
 
-const adjSqrt = Math.sqrt(ratios[0]**2 - 2*ratios[0]*ratios[1] + ratios[1]*ratios[1] + 4);
-const adjSol = [-1, 1].map(i => (i*adjSqrt - ratios[0] - ratios[1] + 2) / 2).reduce((t, r) => Math.abs(r) > Math.abs(t) ? t : r, Infinity);
-assert(Math.abs(adjSol) < 0.2);
-ratios[0] += adjSol;
-ratios[1] -= adjSol;
+let firstLoop = true;
+while (true) {
+	const ratios = [];
+	for (let i = 0; i < 2; i++)
+		ratios.push(parseFloat(await prompt("team " + (i + 1) + " ratio: 1:")));
 
-const returnFraq = ratios.map(r => r - 1);
+	const adjSol = (Math.sqrt(ratios[0]**2 - 2*ratios[0]*ratios[1] + ratios[1]*ratios[1] + 4) - ratios[0] - ratios[1] + 2) / 2;
+	assert(Math.abs(adjSol) < 0.2);
+	ratios[0] += adjSol;
+	ratios[1] -= adjSol;
 
-console.log(`${shortnames[0]} 1:${(returnFraq[0]+1).toFixed(3)} vs 1:${(returnFraq[1]+1).toFixed(3)} ${teams[1].name}`);
+	const returnFraq = ratios.map(r => r - 1);
 
-await Promise.all(P2);
-const allPlayers = await updateP;
+	await Promise.all(P2);
+	const allPlayers = await updateP;
 
-
-const playerRatings = pids.map(l => l.map(p => allPlayers[p]));
-
-
-
-const { p: p1, s: s1 } = winProbabilityCertainty(ts, playerRatings[0], playerRatings[1]);
-
-for (let i = 5; i < 8; i += 2) {
-	let pN = 0;
-	// TODO: correlation https://fcic-static.law.stanford.edu/cdn_media/fcic-testimony/2010-0602-exhibit-binomial.pdf
-	for (let j = Math.ceil(i / 2); j <= i; j++)
-		pN += NChooseK(i, j) * Math.pow(p1, j) * Math.pow(1 - p1, i - j);
-	let sN = Math.sqrt(s1*s1*Math.sqrt(i)); // TODO i just made something up that seemed reasonable-ish
-	
-
-	const kelly = (p, b) => p - (1 - p) / b;
-	let b = returnFraq[0], pK = pN, bet = kelly(pK, b), betOn = 0;
-	if (bet < 0) {
-		b = returnFraq[1];
-		pK = 1 - pN;
-		bet = kelly(pK, b);
-		betOn = 1;
+	if (firstLoop) {
+		for (const team of players)
+			for (const player of team)
+				console.log(`${player.tag.padStart(16)} ${allPlayers[player._id].mu.toFixed(2)} ${allPlayers[player._id].sigma.toFixed(2)}`);
+		firstLoop = false;
 	}
 
-	// https://www.researchgate.net/publication/262425087_Optimal_Betting_Under_Parameter_Uncertainty_Improving_the_Kelly_Criterion
-	const yoloBet = bet;
-	bet *= bet*bet / (bet*bet + ((b+1)/b)**2 * sN**2);
+	console.log(`${shortnames[0]} 1:${(returnFraq[0]+1).toFixed(3)} vs 1:${(returnFraq[1]+1).toFixed(3)} ${teams[1].name}`);
 
-	// console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
-	console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% on ${shortnames[betOn]}`);
+
+	const playerRatings = pids.map(l => l.map(p => allPlayers[p]));
+
+
+
+	const { p: p1, s: s1 } = winProbabilityCertainty(ts, playerRatings[0], playerRatings[1]);
+
+	for (let i = 5; i < 8; i += 2) {
+		let pN = 0;
+		// TODO: correlation https://fcic-static.law.stanford.edu/cdn_media/fcic-testimony/2010-0602-exhibit-binomial.pdf
+		for (let j = Math.ceil(i / 2); j <= i; j++)
+			pN += NChooseK(i, j) * Math.pow(p1, j) * Math.pow(1 - p1, i - j);
+		let sN = Math.sqrt(s1*s1*Math.sqrt(i)); // TODO i just made something up that seemed reasonable-ish
+		
+
+		const kelly = (p, b) => p - (1 - p) / b;
+		let b = returnFraq[0], pK = pN, bet = kelly(pK, b), betOn = 0;
+		if (bet < 0) {
+			b = returnFraq[1];
+			pK = 1 - pN;
+			bet = kelly(pK, b);
+			betOn = 1;
+		}
+
+		// https://www.researchgate.net/publication/262425087_Optimal_Betting_Under_Parameter_Uncertainty_Improving_the_Kelly_Criterion
+		const yoloBet = bet;
+		bet *= bet*bet / (bet*bet + ((b+1)/b)**2 * sN**2);
+
+		console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
+		// console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% on ${shortnames[betOn]}`);
+	}
 }
 
-for (const team of players)
-	for (const player of team)
-		console.log(`${player.tag.padStart(16)} ${allPlayers[player._id].mu.toFixed(2)} ${allPlayers[player._id].sigma.toFixed(2)}`);
 
 })();
