@@ -8,7 +8,6 @@ const { Abba } = require('abbajs');
 const Integral = require('sm-integral');
 const ts = new (require('ts-trueskill').TrueSkill)(undefined, undefined, undefined, 25/3/100/8, 0);
 
-
 function prompt(query) {
 	const rl = readline.createInterface({
 		input: process.stdin,
@@ -163,6 +162,8 @@ const updateP = new Promise(async resolve => {
 
 const teamsP = got("https://zsr.octane.gg/teams").json();
 
+const points = parseFloat(await prompt("total points (k): "));
+
 const P = [];
 const shortnames = [];
 const teams = [];
@@ -207,12 +208,15 @@ while (true) {
 	const allPlayers = await updateP;
 
 	if (firstLoop) {
+		console.log("```py");
 		for (const team of players)
 			for (const player of team)
 				console.log(`${player.tag.padStart(16)} ${allPlayers[player._id].mu.toFixed(2)} ${allPlayers[player._id].sigma.toFixed(2)}`);
 		firstLoop = false;
+		console.log("```");
 	}
 
+	console.log("```py");
 	console.log(`${shortnames[0]} 1:${(returnFraq[0]+1).toFixed(3)} vs 1:${(returnFraq[1]+1).toFixed(3)} ${teams[1].name}`);
 
 
@@ -221,6 +225,8 @@ while (true) {
 
 
 	const { p: p1, s: s1 } = winProbabilityCertainty(ts, playerRatings[0], playerRatings[1]);
+
+	const bets = [];
 
 	for (let i = 5; i < 8; i += 2) {
 		let pN = 0;
@@ -245,7 +251,17 @@ while (true) {
 
 		console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
 		// console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% on ${shortnames[betOn]}`);
+		bets.push({
+			i: i,
+			p: pN,
+			s: sN,
+			bet: bet,
+			on: shortnames[betOn]
+		});
 	}
+	console.log("```");
+	for (line of bets)
+		console.log(`BO${line.i}   Bet ${Math.min(250000, line.bet*points*1000).toFixed(0).padStart(6)} on ${line.on}`);
 }
 
 
