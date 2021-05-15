@@ -193,8 +193,8 @@ const ratios = [];
 for (let i = 0; i < 2; i++)
 	ratios.push(parseFloat(await prompt("team " + (i + 1) + " ratio: 1:")));
 
-const adjSqrt = Math.sqrt(ratios[0]**2 + 2*ratios[0]*(ratios[1]-2) + (ratios[1]-4)*ratios[1]);
-const adjSol = [-1, 1].map(i => (i*adjSqrt - ratios[0] + ratios[1]) / 2).reduce((t, r) => Math.abs(r) > Math.abs(t) ? t : r, Infinity);
+const adjSqrt = Math.sqrt(ratios[0]**2 - 2*ratios[0]*ratios[1] + ratios[1]*ratios[1] + 4);
+const adjSol = [-1, 1].map(i => (i*adjSqrt - ratios[0] - ratios[1] + 2) / 2).reduce((t, r) => Math.abs(r) > Math.abs(t) ? t : r, Infinity);
 assert(Math.abs(adjSol) < 0.2);
 ratios[0] += adjSol;
 ratios[1] -= adjSol;
@@ -213,7 +213,7 @@ const playerRatings = pids.map(l => l.map(p => allPlayers[p]));
 
 const { p: p1, s: s1 } = winProbabilityCertainty(ts, playerRatings[0], playerRatings[1]);
 
-for (let i = 1; i < 8; i += 2) {
+for (let i = 5; i < 8; i += 2) {
 	let pN = 0;
 	// TODO: correlation https://fcic-static.law.stanford.edu/cdn_media/fcic-testimony/2010-0602-exhibit-binomial.pdf
 	for (let j = Math.ceil(i / 2); j <= i; j++)
@@ -234,7 +234,8 @@ for (let i = 1; i < 8; i += 2) {
 	const yoloBet = bet;
 	bet *= bet*bet / (bet*bet + ((b+1)/b)**2 * sN**2);
 
-	console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
+	// console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
+	console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% on ${shortnames[betOn]}`);
 }
 
 for (const team of players)
