@@ -175,7 +175,8 @@ while (askSub) {
 	const sub = await prompt("sub: ");
 	if (askSub = sub.length) {
 		const subWith = await prompt(`sub ${sub} with: `);
-		subs.push([sub, got(`https://zsr.octane.gg/players?tag=${subWith}`).json()]);
+		if (askSub = subWith.length)
+			subs.push([sub, got(`https://zsr.octane.gg/players?tag=${subWith}`).json()]);
 	}
 }
 
