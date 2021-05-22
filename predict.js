@@ -76,7 +76,7 @@ const threadP = new PromiseWorker(async resolve => {
 	const oldMatchCount = allMatches.length;
 	let additions = false;
 	let page = 0;
-	const perPage = 200;
+	const perPage = 50;
 	const startDate = matchesJson.lastDate;
 	while (true) {
 		const matches = (await got(`https://zsr.octane.gg/matches?sort=date:asc&after=${startDate}&perPage=${perPage}&page=${++page}`).json()).matches;
@@ -160,19 +160,35 @@ const updateP = new Promise(async resolve => {
 
 
 
-const teamsP = got("https://zsr.octane.gg/teams").json();
-
 const points = parseFloat(await prompt("total points (k): "));
 
 const P = [];
 const shortnames = [];
 const teams = [];
 const players = [];
+for (let i = 0; i < 2; i++)
+	shortnames[i] = await prompt(`team ${i + 1}: `);
+
+const subs = [];
+let askSub = true;
+while (askSub) {
+	const sub = await prompt("sub: ");
+	if (askSub = sub.length) {
+		const subWith = await prompt(`sub ${sub} with: `);
+		subs.push([sub, got(`https://zsr.octane.gg/players?tag=${subWith}`).json()]);
+	}
+}
+
 for (let i = 0; i < 2; i++) {
-	shortnames[i] = await prompt("team " + (i + 1) + ": ");
 	P.push(new Promise(async resolve => {
-		const teamF = (await teamsP).teams.filter(t => t.name.toLowerCase().includes(shortnames[i]));
-		teamF.map(t => t.key = t.name.length - 1000 * (t.name.toLowerCase().split(" ").some(w => w.substr(0, shortnames[i].length) == shortnames[i])))
+		const teamsP = await got(`https://zsr.octane.gg/teams?name=${shortnames[i]}`).json();
+		const teamF = (await teamsP).teams;
+		teamF.map(t => 
+			t.key = t.name.length
+			- 1000 * (t.name.toLowerCase().split(" ").some(w => w.substr(0, shortnames[i].length) == shortnames[i]))
+			- 9000 * (t.name.toLowerCase().split(" ").some(w => w == shortnames[i]))
+			- 90000 * (t.relevant ? 1 : 0)
+		);
 		teams[i] = teamF.sort((a, b) => a.key - b.key)[0];
 		assert(teams[i]);
 		resolve(new Promise(async resolve => {
@@ -181,8 +197,16 @@ for (let i = 0; i < 2; i++) {
 				players[i] = (lastGames[0].blue.team.team._id == teams[i]._id ? lastGames[0].blue : lastGames[0].orange).players.map(p => p.player);
 			else 
 				players[i] = (await got("https://zsr.octane.gg/players?team=" + teams[i]._id).json()).players;
-			
+
 			assert(players[i].length == 3);
+			for (let j = 0; j < 3; j++) {
+				const sub = subs.find(s => players[i][j].tag == s[0]);
+				if (sub) {
+					players[i][j] = (await sub[1]).players[0];
+					players[i][j].tag += "*";
+				}
+			}
+
 			resolve();
 		}));
 	}));
