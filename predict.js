@@ -97,6 +97,7 @@ const threadP = new PromiseWorker(async resolve => {
 					continue;
 				if (match.orange.players.length != 3 || match.blue.players.length != 3)
 					continue;
+				console.log("actually adding")
 				allMatches.push({
 					_id: match._id,
 					players: [match.blue.players, match.orange.players].map(l => l.map(p => p.player._id)),
@@ -114,7 +115,7 @@ const threadP = new PromiseWorker(async resolve => {
 		if (matches.length < perPage)
 			break;
 
-		if (page % 5 == 0) {
+		if (page % 5 == 0 && additions) {
 			console.log(`downloaded ${page*perPage} matches, currently at ${matchesJson.lastDate}`);
 			if (additions)
 				fs.writeFile("matches.json", JSON.stringify(matchesJson), _ => {});
@@ -223,7 +224,9 @@ while (true) {
 		ratios.push(parseFloat(await prompt("team " + (i + 1) + " ratio: 1:")));
 
 	const adjSol = (Math.sqrt(ratios[0]**2 - 2*ratios[0]*ratios[1] + ratios[1]*ratios[1] + 4) - ratios[0] - ratios[1] + 2) / 2;
-	assert(Math.abs(adjSol) < 0.2);
+	if (Math.abs(adjSol) > 0.2) {
+		console.warn("WARNING: ratios are off by a lot, might be a typo");
+	}
 	ratios[0] += adjSol;
 	ratios[1] -= adjSol;
 
@@ -253,36 +256,43 @@ while (true) {
 
 	const bets = [];
 
-	for (let i = 5; i < 8; i += 2) {
-		let pN = 0;
-		// TODO: correlation https://fcic-static.law.stanford.edu/cdn_media/fcic-testimony/2010-0602-exhibit-binomial.pdf
-		for (let j = Math.ceil(i / 2); j <= i; j++)
-			pN += NChooseK(i, j) * Math.pow(p1, j) * Math.pow(1 - p1, i - j);
-		let sN = Math.sqrt(s1*s1*Math.sqrt(i)); // TODO i just made something up that seemed reasonable-ish
-		
+	for (let j = 1; j <= 2; j++) {
+		for (let i = 5; i < 8; i += 2) {
+			let pN = p1, sN = s1;
+			for (let k = 0; k < j; k++) {
+				const pBefore = pN;
+				pN = 0;
+				// TODO: correlation https://fcic-static.law.stanford.edu/cdn_media/fcic-testimony/2010-0602-exhibit-binomial.pdf
+				let n = k == 0 ? i : 3;
+				for (let j = Math.ceil(n / 2); j <= n; j++)
+					pN += NChooseK(n, j) * Math.pow(pBefore, j) * Math.pow(1 - pBefore, n - j);
+				sN = Math.sqrt(sN*sN*Math.sqrt(n)); // TODO i just made something up that seemed reasonable-ish
+			}
+			
 
-		const kelly = (p, b) => p - (1 - p) / b;
-		let b = returnFraq[0], pK = pN, bet = kelly(pK, b), betOn = 0;
-		if (bet < 0) {
-			b = returnFraq[1];
-			pK = 1 - pN;
-			bet = kelly(pK, b);
-			betOn = 1;
+			const kelly = (p, b) => p - (1 - p) / b;
+			let b = returnFraq[0], pK = pN, bet = kelly(pK, b), betOn = 0;
+			if (bet < 0) {
+				b = returnFraq[1];
+				pK = 1 - pN;
+				bet = kelly(pK, b);
+				betOn = 1;
+			}
+
+			// https://www.researchgate.net/publication/262425087_Optimal_Betting_Under_Parameter_Uncertainty_Improving_the_Kelly_Criterion
+			const yoloBet = bet;
+			bet *= bet*bet / (bet*bet + ((b+1)/b)**2 * sN**2);
+
+			console.log(`BO${i} ${j == 1 ? "  " : "S" + j}  p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
+			// console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% on ${shortnames[betOn]}`);
+			bets.push({
+				i: i,
+				p: pN,
+				s: sN,
+				bet: bet,
+				on: shortnames[betOn]
+			});
 		}
-
-		// https://www.researchgate.net/publication/262425087_Optimal_Betting_Under_Parameter_Uncertainty_Improving_the_Kelly_Criterion
-		const yoloBet = bet;
-		bet *= bet*bet / (bet*bet + ((b+1)/b)**2 * sN**2);
-
-		console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
-		// console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% on ${shortnames[betOn]}`);
-		bets.push({
-			i: i,
-			p: pN,
-			s: sN,
-			bet: bet,
-			on: shortnames[betOn]
-		});
 	}
 	console.log("```");
 	for (line of bets)
