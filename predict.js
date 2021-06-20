@@ -22,23 +22,44 @@ function prompt(query) {
 
 
 const N0 = new Abba.NormalDistribution(0, 1);
-function winProbabilityCertainty(ts, a, b) {
+function winProbabilityFunction(ts, a, b) {
 	const deltaMu = a.reduce((t, cur) => t + cur.mu, 0) - b.reduce((t, cur) => t + cur.mu, 0);
 	const sumSigma = a.reduce((t, n) => n.sigma ** 2 + t, 0) + b.reduce((t, n) => n.sigma ** 2 + t, 0);
 	const playerCount = a.length + b.length;
 	const denominator = Math.sqrt(playerCount * ts.beta * ts.beta + sumSigma);
 
 	const N = new Abba.NormalDistribution(deltaMu / denominator, Math.sqrt(sumSigma) / denominator);
-	const P = x => N.density(N0.inverseCdf(x));
+	return x => N.density(N0.inverseCdf(x));
+}
+function winProbabilityBestOf(P, n) {
+	// old comment: correlation https://fcic-static.law.stanford.edu/cdn_media/fcic-testimony/2010-0602-exhibit-binomial.pdf
+	const xMap = x => {
+		let xN = 0;
+		for (let j = Math.ceil(n / 2); j <= n; j++)
+			xN += NChooseK(n, j) * Math.pow(x, j) * Math.pow(1 - x, n - j);
+		return xN;
+	}
+	return x => {
+		let yGuess = x;
+		while (true) {
+			const xGuess = xMap(yGuess);
+			if (Math.abs(x - xGuess) < 1e-7)
+				return P(yGuess);
+			yGuess += .8 * (x - xGuess);
+		}
+	};
+}
+function meanStd(P) {
 	const scale = Integral.integrate(P, 0, 1);
 	const PScale = x => P(x) / scale;
 	const mean = Integral.integrate(x => x * PScale(x), 0, 1);
 	const stddev = Math.sqrt(Integral.integrate(x => x**2 * PScale(x), 0, 1) - mean**2);
 
-	// console.log(N0.cdf(deltaMu / denominator), mean, stddev);
-	// N0.cdf(deltaMu / denominator) is supposed to be equal to mean but its not
-
-	return { p: N0.cdf(deltaMu / denominator), s: stddev };
+	return { p: mean, s: stddev };
+}
+function winProbabilityCertainty(ts, a, b) {
+	const P = winProbabilityFunction(ts, a, b);
+	return meanStd(P);
 }
 
 
@@ -88,7 +109,7 @@ const threadP = new PromiseWorker(async resolve => {
 				if (!match.format)
 					continue;
 				if (match.format.type != "best") {
-					console.log(match.format.type);
+					console.log("unknown format: " + match.format.type);
 					continue;
 				}
 				if (!match.games || !match.format)
@@ -97,7 +118,6 @@ const threadP = new PromiseWorker(async resolve => {
 					continue;
 				if (match.orange.players.length != 3 || match.blue.players.length != 3)
 					continue;
-				console.log("actually adding")
 				allMatches.push({
 					_id: match._id,
 					players: [match.blue.players, match.orange.players].map(l => l.map(p => p.player._id)),
@@ -252,22 +272,16 @@ while (true) {
 
 
 
-	const { p: p1, s: s1 } = winProbabilityCertainty(ts, playerRatings[0], playerRatings[1]);
+	const P1 = winProbabilityFunction(ts, playerRatings[0], playerRatings[1]);
 
 	const bets = [];
 
 	for (let j = 1; j <= 2; j++) {
 		for (let i = 5; i < 8; i += 2) {
-			let pN = p1, sN = s1;
-			for (let k = 0; k < j; k++) {
-				const pBefore = pN;
-				pN = 0;
-				// TODO: correlation https://fcic-static.law.stanford.edu/cdn_media/fcic-testimony/2010-0602-exhibit-binomial.pdf
-				let n = k == 0 ? i : 3;
-				for (let j = Math.ceil(n / 2); j <= n; j++)
-					pN += NChooseK(n, j) * Math.pow(pBefore, j) * Math.pow(1 - pBefore, n - j);
-				sN = Math.sqrt(sN*sN*Math.sqrt(n)); // TODO i just made something up that seemed reasonable-ish
-			}
+			let PN = winProbabilityBestOf(P1, i);
+			if (j == 2)
+				PN = winProbabilityBestOf(PN, 3);
+			const { p: pN, s: sN } = meanStd(PN);
 			
 
 			const kelly = (p, b) => p - (1 - p) / b;
@@ -283,10 +297,11 @@ while (true) {
 			const yoloBet = bet;
 			bet *= bet*bet / (bet*bet + ((b+1)/b)**2 * sN**2);
 
-			console.log(`BO${i} ${j == 1 ? "  " : "S" + j}  p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
+			const name = `BO${i} ${j == 1 ? "  " : "S" + j}`;
+			console.log(`${name}  p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
 			// console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% on ${shortnames[betOn]}`);
 			bets.push({
-				i: i,
+				name: name,
 				p: pN,
 				s: sN,
 				bet: bet,
@@ -296,7 +311,7 @@ while (true) {
 	}
 	console.log("```");
 	for (line of bets)
-		console.log(`BO${line.i}   Bet ${Math.min(250000, line.bet*points*1000).toFixed(0).padStart(6)} on ${line.on}`);
+		console.log(`${line.name}   Bet ${Math.min(250000, line.bet*points*1000).toFixed(0).padStart(6)} on ${line.on}`);
 }
 
 
