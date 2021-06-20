@@ -57,10 +57,10 @@ function meanStd(P) {
 
 	return { p: mean, s: stddev };
 }
-function winProbabilityCertainty(ts, a, b) {
-	const P = winProbabilityFunction(ts, a, b);
-	return meanStd(P);
-}
+// function winProbabilityCertainty(ts, a, b) {
+// 	const P = winProbabilityFunction(ts, a, b);
+// 	return meanStd(P);
+// }
 
 
 function NChooseK(n, k) {
@@ -108,7 +108,7 @@ const threadP = new PromiseWorker(async resolve => {
 			if (match.date && allMatches.every(m => match._id != m._id)) {
 				if (!match.format)
 					continue;
-				if (match.format.type != "best") {
+				if (match.format.type != "best" && match.format.type != "set") {
 					console.log("unknown format: " + match.format.type);
 					continue;
 				}
