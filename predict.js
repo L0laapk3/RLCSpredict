@@ -135,7 +135,7 @@ const threadP = new PromiseWorker(async resolve => {
 		if (matches.length < perPage)
 			break;
 
-		if (page % 5 == 0 && additions) {
+		if ((page - 1) % 5 == 0 && additions) {
 			console.log(`downloaded ${page*perPage} matches, currently at ${matchesJson.lastDate}`);
 			if (additions)
 				fs.writeFile("matches.json", JSON.stringify(matchesJson), _ => {});
@@ -265,7 +265,7 @@ while (true) {
 	}
 
 	console.log("```py");
-	console.log(`${shortnames[0]} 1:${(returnFraq[0]+1).toFixed(3)} vs 1:${(returnFraq[1]+1).toFixed(3)} ${teams[1].name}`);
+	console.log(`${teams[0].name} 1:${(returnFraq[0]+1).toFixed(3)} vs 1:${(returnFraq[1]+1).toFixed(3)} ${teams[1].name}`);
 
 
 	const playerRatings = pids.map(l => l.map(p => allPlayers[p]));
