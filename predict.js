@@ -2,11 +2,15 @@
 const readline = require('readline');
 const assert = require('assert');
 
+const fs = require('fs');
 const got = require('got');
 const { PromiseWorker } = require('promise-workers');
 const { Abba } = require('abbajs');
 const Integral = require('sm-integral');
-const ts = new (require('ts-trueskill').TrueSkill)(undefined, undefined, undefined, 25/3/100/8, 0);
+const TrueSkill = require('ts-trueskill').TrueSkill;
+
+const RHO = 0;
+
 
 function prompt(query) {
 	const rl = readline.createInterface({
@@ -22,41 +26,76 @@ function prompt(query) {
 
 
 const N0 = new Abba.NormalDistribution(0, 1);
-function winProbabilityFunction(ts, a, b) {
+function winProbabilityDists(ts, a, b) {
 	const deltaMu = a.reduce((t, cur) => t + cur.mu, 0) - b.reduce((t, cur) => t + cur.mu, 0);
 	const sumSigma = a.reduce((t, n) => n.sigma ** 2 + t, 0) + b.reduce((t, n) => n.sigma ** 2 + t, 0);
 	const playerCount = a.length + b.length;
 	const denominator = Math.sqrt(playerCount * ts.beta * ts.beta + sumSigma);
+	console.log("old formula: ", N0.cdf(deltaMu / denominator));
+	console.log("old formula alt: ", N0.cdf(deltaMu / Math.sqrt(playerCount * ts.beta * ts.beta)));
 
-	const N = new Abba.NormalDistribution(deltaMu / denominator, Math.sqrt(sumSigma) / denominator);
-	return x => N.density(N0.inverseCdf(x));
+	const sSkill = Math.sqrt(sumSigma);
+	const NSkill = new Abba.NormalDistribution(deltaMu, sSkill);
+
+	const sUncertainty = Math.sqrt(playerCount) * ts.beta;
+	const NUncertainty = new Abba.NormalDistribution(0, sUncertainty);
+
+	const M = 4;
+	return {
+		NSkill: NSkill,
+		NUncertainty: NUncertainty,
+		range: {
+			min: Math.min(deltaMu - M * sSkill, -M * sUncertainty),
+			max: Math.max(deltaMu + M * sSkill,  M * sUncertainty),
+		},
+	};
+
+	// console.log(deltaMu, denominator, N0.cdf(deltaMu / denominator));
+	// const N = new Abba.NormalDistribution(-deltaMu / denominator, 1); 
+	// return p => N0.density(N.inverseCdf(p));
+	
+    // denominator = math.sqrt(playerCount * (BETA * BETA) + sumSigma)             
+    // return N0.cdf(deltaMu / denominator)
+	// return x => new Abba.NormalDistribution(0, denominator).cdf(deltaMu + x);
 }
-function winProbabilityBestOf(P, n) {
-	// old comment: correlation https://fcic-static.law.stanford.edu/cdn_media/fcic-testimony/2010-0602-exhibit-binomial.pdf
-	const xMap = x => {
-		let xN = 0;
+
+function bestOfN(n) {
+	// const k = (n - 1) / 2;
+		// for (let j = 0; j < n - k; j++) {
+		// 	let v = x;
+		// 	for (let w = 2; w < j + k; w++) {
+		// 		v *= (1 - (1 - x) * Math.pow(1 - RHO, w - 1));
+		// 	}
+		// 	xN += Math.pow(-1, j) * NChooseK(n - k, j) * v;
+		// }
+		// xN *= NChooseK(n, k);
+	// TODO: correlation https://fcic-static.law.stanford.edu/cdn_media/fcic-testimony/2010-0602-exhibit-binomial.pdf
+
+	return p1 => {
+		let pN = 0;
 		for (let j = Math.ceil(n / 2); j <= n; j++)
-			xN += NChooseK(n, j) * Math.pow(x, j) * Math.pow(1 - x, n - j);
-		return xN;
-	}
-	return x => {
-		let yGuess = x;
-		while (true) {
-			const xGuess = xMap(yGuess);
-			if (Math.abs(x - xGuess) < 1e-7)
-				return P(yGuess);
-			yGuess += .8 * (x - xGuess);
-		}
+			pN += NChooseK(n, j) * Math.pow(p1, j) * Math.pow(1 - p1, n - j);
+		return pN;
+	};
+
+}
+
+function winProbabilityMeanStd(dists, boN) {
+	const mean = Integral.integrate(x => dists.NSkill.density(x) * boN(dists.NUncertainty.cdf(x)), dists.range.min, dists.range.max);
+	return {
+		mean: mean,
+		var: Integral.integrate(x => dists.NSkill.density(x) * (boN(dists.NUncertainty.cdf(x)) - mean)**2, dists.range.min, dists.range.max),
 	};
 }
-function meanStd(P) {
-	const scale = Integral.integrate(P, 0, 1);
-	const PScale = x => P(x) / scale;
-	const mean = Integral.integrate(x => x * PScale(x), 0, 1);
-	const stddev = Math.sqrt(Integral.integrate(x => x**2 * PScale(x), 0, 1) - mean**2);
 
-	return { p: mean, s: stddev };
-}
+// function meanStd(P) {
+// 	const scale = Integral.integrate(P, 0, 1);
+// 	const PScale = x => P(x) / scale;
+// 	const mean = Integral.integrate(x => x * PScale(x), 0, 1);
+// 	const stddev = Math.sqrt(Integral.integrate(x => x**2 * PScale(x), 0, 1) - mean**2);
+
+// 	return { p: mean, s: stddev };
+// }
 // function winProbabilityCertainty(ts, a, b) {
 // 	const P = winProbabilityFunction(ts, a, b);
 // 	return meanStd(P);
@@ -73,13 +112,12 @@ function NChooseK(n, k) {
 
 
 
-(async ()=> {
 
-const threadP = new PromiseWorker(async resolve => {
-	const fs = require('fs');
-	const got = require('got');
-	const ts = new (require('ts-trueskill').TrueSkill)(workerData.mu, workerData.sigma, workerData.beta, workerData.tau, 0);
+(async ()=> {
 	
+const ts = new TrueSkill(undefined, undefined, undefined, undefined, 0);
+
+const loadP = new Promise(async resolve => {
 
 	let matchesJson;
 	try {
@@ -92,7 +130,6 @@ const threadP = new PromiseWorker(async resolve => {
 		};
 	}
 	const allMatches = matchesJson.matches;
-	const allPlayers = {};
 
 	const oldMatchCount = allMatches.length;
 	let additions = false;
@@ -125,6 +162,8 @@ const threadP = new PromiseWorker(async resolve => {
 						blue: m.blue,
 						orange: m.orange
 					})),
+					format: match.format,
+					blueWin: !!match.blue.winner,
 				});
 				if (match.date)
 					matchesJson.lastDate = match.date;
@@ -147,31 +186,57 @@ const threadP = new PromiseWorker(async resolve => {
 		console.log(`downloaded ${allMatches.length - oldMatchCount} matches.`);
 		fs.writeFile("matches.json", JSON.stringify(matchesJson), _ => {});
 	}
+	resolve(allMatches);
+});
 
-	for (let match of allMatches) {		
+const allMatches = await loadP;
+
+const updateThreadPF = _ => new Promise(async resolve => {
+	const fs = require('fs');
+	const got = require('got');
+	const TrueSkill = require('ts-trueskill').TrueSkill;
+	// const ts = new TrueSkill(workerData.mu, workerData.sigma, workerData.beta, workerData.tau, 0);
+	// const allMatches = workerData.allMatches;
+
+	const allPlayers = {};
+
+	let score = 0;
+	let totalScore = 0;
+
+	for (let match of allMatches) {	
+		
+		const playersRatings = match.players.map(l => l.map(p => allPlayers[p] || ts.createRating()));
+		
+		// if (match.format.type == "best" && false) {
+		// 	const P1 = winProbabilityFunction(ts, playersRatings[0], playersRatings[1]);
+		// 	const PN = winProbabilityBestOfFunction(P1, match.format.length);
+		// 	const { p: pN, s: sN } = meanStd(PN);
+		// 	score += (match.blueWin ? pN : 1 - pN) / sN**2;
+		// 	totalScore += 1 / sN**2;
+		// }
+
 		for (const game of match.games) {
-			if (game.blue < game.orange)
-				match.players.reverse();
-			results = ts.rate(match.players.map(l => l.map(p => allPlayers[p] || ts.createRating())));
+			results = ts.rate(game.blue < game.orange ? [playersRatings[1], playersRatings[0]] : playersRatings);
 			for (let t = 0; t < 2; t++)
-				for (let i = 0; i < match.players[t].length; i++)
-					allPlayers[match.players[t][i]] = results[t][i];
-			if (game.blue < game.orange)
-				match.players.reverse();
-			
-			// if ([].concat(...match.players).includes("5f3d8fdd95f40596eae23d9b"))
-			// 	console.log(allPlayers["5f3d8fdd95f40596eae23d9b"].mu, allPlayers["5f3d8fdd95f40596eae23d9b"].sigma);
+				playersRatings[t] = results[game.blue < game.orange ? 1 - t : t];
 		}
+		
+		for (let t = 0; t < 2; t++)
+			for (let i = 0; i < match.players[t].length; i++)
+				allPlayers[match.players[t][i]] = playersRatings[t][i];
 	}
 
 	for (let pid in allPlayers)
 		allPlayers[pid] = { mu: allPlayers[pid].mu, sigma: allPlayers[pid].sigma };
 
-	resolve(allPlayers);
-}, {workerData: {mu: ts.mu, sigma: ts.sigma, tau: ts.tau, beta: ts.beta}});
+	score /= totalScore;
+
+	resolve({ allPlayers, score });
+}, {workerData: { mu: ts.mu, sigma: ts.sigma, tau: ts.tau, beta: ts.beta, allMatches: allMatches }});
 
 const updateP = new Promise(async resolve => {
-	const allPlayers = await threadP;
+	const { allPlayers, score } = await updateThreadPF();
+	console.log("score:", score);
 	for (let pid in allPlayers)
 		allPlayers[pid] = ts.createRating(allPlayers[pid].mu, allPlayers[pid].sigma);
 	resolve(allPlayers);
@@ -272,16 +337,19 @@ while (true) {
 
 
 
-	const P1 = winProbabilityFunction(ts, playerRatings[0], playerRatings[1]);
+	const WP1Dists = winProbabilityDists(ts, playerRatings[0], playerRatings[1]);
+	const { mean: p1, var: v1 } = winProbabilityMeanStd(WP1Dists, x => x);
+	console.log(p1, Math.sqrt(v1));
 
 	const bets = [];
 
-	for (let j = 1; j <= 2; j++) {
-		for (let i = 5; i < 8; i += 2) {
-			let PN = winProbabilityBestOf(P1, i);
+	for (let j = 1; j <= 1; j++) {
+		for (let i = 1; i < 8; i += 2) {
+			let boN = bestOfN(i);
 			if (j == 2)
-				PN = winProbabilityBestOf(PN, 3);
-			const { p: pN, s: sN } = meanStd(PN);
+				boN = x => bestOfN(3)(boN(x));
+				
+			const { mean: pN, var: vN } = winProbabilityMeanStd(WP1Dists, boN);
 			
 
 			const kelly = (p, b) => p - (1 - p) / b;
@@ -293,17 +361,17 @@ while (true) {
 				betOn = 1;
 			}
 
-			// https://www.researchgate.net/publication/262425087_Optimal_Betting_Under_Parameter_Uncertainty_Improving_the_Kelly_Criterion
 			const yoloBet = bet;
-			bet *= bet*bet / (bet*bet + ((b+1)/b)**2 * sN**2);
+			// https://www.researchgate.net/publication/262425087_Optimal_Betting_Under_Parameter_Uncertainty_Improving_the_Kelly_Criterion
+			bet *= bet*bet / (bet*bet + ((b+1)/b)**2 * vN);
 
 			const name = `BO${i} ${j == 1 ? "  " : "S" + j}`;
-			console.log(`${name}  p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
-			// console.log(`BO${i}   p=${pN.toFixed(3).substr(1)} σ=${sN.toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% on ${shortnames[betOn]}`);
+			// console.log(`${name}  p=${pN.toFixed(3).substr(1)} σ=${Math.sqrt(vN).toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
+			console.log(`${name}  p=${pN.toFixed(3).substr(1)} σ=${Math.sqrt(vN).toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% on ${shortnames[betOn]}`);
 			bets.push({
 				name: name,
 				p: pN,
-				s: sN,
+				s: Math.sqrt(vN),
 				bet: bet,
 				on: shortnames[betOn]
 			});
