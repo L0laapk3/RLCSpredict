@@ -31,8 +31,8 @@ function winProbabilityDists(ts, a, b) {
 	const sumSigma = a.reduce((t, n) => n.sigma ** 2 + t, 0) + b.reduce((t, n) => n.sigma ** 2 + t, 0);
 	const playerCount = a.length + b.length;
 	const denominator = Math.sqrt(playerCount * ts.beta * ts.beta + sumSigma);
-	console.log("old formula: ", N0.cdf(deltaMu / denominator));
-	console.log("old formula alt: ", N0.cdf(deltaMu / Math.sqrt(playerCount * ts.beta * ts.beta)));
+	// console.log("old formula: ", N0.cdf(deltaMu / denominator));
+	// console.log("old formula alt: ", N0.cdf(deltaMu / Math.sqrt(playerCount * ts.beta * ts.beta)));
 
 	const sSkill = Math.sqrt(sumSigma);
 	const NSkill = new Abba.NormalDistribution(deltaMu, sSkill);
@@ -115,7 +115,7 @@ function NChooseK(n, k) {
 
 (async ()=> {
 	
-const ts = new TrueSkill(undefined, undefined, undefined, undefined, 0);
+const ts = new TrueSkill(undefined, undefined, 10, undefined, 0);
 
 const loadP = new Promise(async resolve => {
 
@@ -236,7 +236,7 @@ const updateThreadPF = _ => new Promise(async resolve => {
 
 const updateP = new Promise(async resolve => {
 	const { allPlayers, score } = await updateThreadPF();
-	console.log("score:", score);
+	// console.log("score:", score);
 	for (let pid in allPlayers)
 		allPlayers[pid] = ts.createRating(allPlayers[pid].mu, allPlayers[pid].sigma);
 	resolve(allPlayers);
@@ -313,7 +313,7 @@ while (true) {
 		console.warn("WARNING: ratios are off by a lot, might be a typo");
 	}
 	ratios[0] += adjSol;
-	ratios[1] -= adjSol;
+	ratios[1] += adjSol;
 
 	const returnFraq = ratios.map(r => r - 1);
 
@@ -338,16 +338,19 @@ while (true) {
 
 
 	const WP1Dists = winProbabilityDists(ts, playerRatings[0], playerRatings[1]);
-	const { mean: p1, var: v1 } = winProbabilityMeanStd(WP1Dists, x => x);
-	console.log(p1, Math.sqrt(v1));
+	// const { mean: p1, var: v1 } = winProbabilityMeanStd(WP1Dists, x => x);
+	// console.log(p1, Math.sqrt(v1));
 
 	const bets = [];
 
-	for (let j = 1; j <= 1; j++) {
-		for (let i = 1; i < 8; i += 2) {
-			let boN = bestOfN(i);
-			if (j == 2)
-				boN = x => bestOfN(3)(boN(x));
+	for (let j = 1; j <= 2; j++) {
+		for (let i = 5; i < 8; i += 2) {
+			const boNFirst = bestOfN(i);
+			let boN = boNFirst;
+			if (j == 2) {
+				const bo3Set = bestOfN(3);
+				boN = x => bo3Set(boNFirst(x));
+			}
 				
 			const { mean: pN, var: vN } = winProbabilityMeanStd(WP1Dists, boN);
 			
@@ -367,7 +370,7 @@ while (true) {
 
 			const name = `BO${i} ${j == 1 ? "  " : "S" + j}`;
 			// console.log(`${name}  p=${pN.toFixed(3).substr(1)} σ=${Math.sqrt(vN).toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
-			console.log(`${name}  p=${pN.toFixed(3).substr(1)} σ=${Math.sqrt(vN).toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% on ${shortnames[betOn]}`);
+			console.log(`${name}   p=${pN.toFixed(3).substr(1)} σ=${Math.sqrt(vN).toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% on ${shortnames[betOn]}`);
 			bets.push({
 				name: name,
 				p: pN,

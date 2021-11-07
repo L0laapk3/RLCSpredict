@@ -13,7 +13,6 @@
     "gaussian": "^1.2.0",
     "gm": "^1.23.1",
     "got": "~11.8.2",
-    "jstat": "^1.9.4",
     "promise-workers": "~2.0.2",
     "sm-integral": "~1.0.1",
     "ts-trueskill": "~3.2.1"
