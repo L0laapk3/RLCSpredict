@@ -262,7 +262,7 @@ while (askSub) {
 	if (askSub = sub.length) {
 		const subWith = await prompt(`sub ${sub} with: `);
 		if (askSub = subWith.length)
-			subs.push([sub, got(`https://zsr.octane.gg/players?tag=${subWith}`).json()]);
+			subs.push([sub, got(`https://zsr.octane.gg/players?tag=${subWith}`).json(), subWith.toLowerCase()]);
 	}
 }
 
@@ -287,9 +287,11 @@ for (let i = 0; i < 2; i++) {
 
 			assert(players[i].length == 3);
 			for (let j = 0; j < 3; j++) {
-				const sub = subs.find(s => players[i][j].tag == s[0]);
+				const sub = subs.find(s => players[i][j].tag.toLowerCase() == s[0]);
 				if (sub) {
-					players[i][j] = (await sub[1]).players[0];
+
+					players[i][j] = (await sub[1]).players.find(p => p.tag.substr(0, sub[2].length).toLowerCase() == sub[2]);
+					console.log(sub[0], players[i][j]);
 					players[i][j].tag += "*";
 				}
 			}
@@ -298,6 +300,8 @@ for (let i = 0; i < 2; i++) {
 		}));
 	}));
 }
+
+
 const P2 = await Promise.all(P);
 console.log(`${teams[0].name} vs ${teams[1].name}`);
 const pids = players.map(l => l.map(p => p._id));
@@ -344,7 +348,7 @@ while (true) {
 	const bets = [];
 
 	for (let j = 1; j <= 2; j++) {
-		for (let i = 5; i < 8; i += 2) {
+		for (let i = j == 2 ? 7 : 1; i < 8; i += 2) {
 			const boNFirst = bestOfN(i);
 			let boN = boNFirst;
 			if (j == 2) {

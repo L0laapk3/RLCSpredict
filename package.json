@@ -1,20 +1,27 @@
 {
   "name": "rlcs-predict",
   "version": "1.0.0",
-  "description": "",
   "main": "predict.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
-  "license": "ISC",
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/L0laapk3/RLCSpredict.git"
+  },
+  "bugs": {
+    "url": "https://github.com/L0laapk3/RLCSpredict/issues"
+  },
+  "homepage": "https://github.com/L0laapk3/RLCSpredict#readme",
+  "description": "",
   "dependencies": {
     "abbajs": "^0.1.4",
-    "gaussian": "^1.2.0",
-    "gm": "^1.23.1",
-    "got": "~11.8.2",
-    "promise-workers": "~2.0.2",
-    "sm-integral": "~1.0.1",
-    "ts-trueskill": "~3.2.1"
+    "got": "^11.8.2",
+    "jstat": "^1.9.5",
+    "promise-workers": "^2.0.2",
+    "sm-integral": "^1.0.1",
+    "ts-trueskill": "^3.2.2"
   }
 }
