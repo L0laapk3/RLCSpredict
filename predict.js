@@ -189,14 +189,13 @@ const loadP = new Promise(async resolve => {
 	resolve(allMatches);
 });
 
-const allMatches = await loadP;
 
-const updateThreadPF = _ => new Promise(async resolve => {
+const updateThreadPF = allMatches => new PromiseWorker(async resolve => {
 	const fs = require('fs');
 	const got = require('got');
 	const TrueSkill = require('ts-trueskill').TrueSkill;
-	// const ts = new TrueSkill(workerData.mu, workerData.sigma, workerData.beta, workerData.tau, 0);
-	// const allMatches = workerData.allMatches;
+	const ts = new TrueSkill(workerData.mu, workerData.sigma, workerData.beta, workerData.tau, 0);
+	const allMatches = workerData.allMatches;
 
 	const allPlayers = {};
 
@@ -235,7 +234,8 @@ const updateThreadPF = _ => new Promise(async resolve => {
 }, {workerData: { mu: ts.mu, sigma: ts.sigma, tau: ts.tau, beta: ts.beta, allMatches: allMatches }});
 
 const updateP = new Promise(async resolve => {
-	const { allPlayers, score } = await updateThreadPF();
+	const allMatches = await loadP;
+	const { allPlayers, score } = await updateThreadPF(allMatches);
 	// console.log("score:", score);
 	for (let pid in allPlayers)
 		allPlayers[pid] = ts.createRating(allPlayers[pid].mu, allPlayers[pid].sigma);
@@ -289,9 +289,7 @@ for (let i = 0; i < 2; i++) {
 			for (let j = 0; j < 3; j++) {
 				const sub = subs.find(s => players[i][j].tag.toLowerCase() == s[0]);
 				if (sub) {
-
 					players[i][j] = (await sub[1]).players.find(p => p.tag.substr(0, sub[2].length).toLowerCase() == sub[2]);
-					console.log(sub[0], players[i][j]);
 					players[i][j].tag += "*";
 				}
 			}
