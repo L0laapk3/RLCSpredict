@@ -59,25 +59,63 @@ function winProbabilityDists(ts, a, b) {
 	// return x => new Abba.NormalDistribution(0, denominator).cdf(deltaMu + x);
 }
 
-function bestOfN(n) {
-	// const k = (n - 1) / 2;
-		// for (let j = 0; j < n - k; j++) {
-		// 	let v = x;
-		// 	for (let w = 2; w < j + k; w++) {
-		// 		v *= (1 - (1 - x) * Math.pow(1 - RHO, w - 1));
-		// 	}
-		// 	xN += Math.pow(-1, j) * NChooseK(n - k, j) * v;
-		// }
-		// xN *= NChooseK(n, k);
-	// TODO: correlation https://fcic-static.law.stanford.edu/cdn_media/fcic-testimony/2010-0602-exhibit-binomial.pdf
-
+function bestOfN(n, firstGame) {
+	if (firstGame)
+		n--;
 	return p1 => {
 		let pN = 0;
-		for (let j = Math.ceil(n / 2); j <= n; j++)
+		for (let j = Math.ceil(n / 2) + (firstGame == -1 ? 1 : 0); j <= n; j++)
 			pN += NChooseK(n, j) * Math.pow(p1, j) * Math.pow(1 - p1, n - j);
 		return pN;
 	};
 
+	// TODO: correlation https://fcic-static.law.stanford.edu/cdn_media/fcic-testimony/2010-0602-exhibit-binomial.pdf
+	// const k = (n - 1) / 2;
+	// for (let j = 0; j < n - k; j++) {
+	// 	let v = x;
+	// 	for (let w = 2; w < j + k; w++) {
+	// 		v *= (1 - (1 - x) * Math.pow(1 - RHO, w - 1));
+	// 	}
+	// 	xN += Math.pow(-1, j) * NChooseK(n - k, j) * v;
+	// }
+	// xN *= NChooseK(n, k);
+}
+
+function optimalBet(dists, boN, returnFraq) {
+	console.log(returnFraq);
+	const P = x => dists.NSkill.density(x) * boN(dists.NUncertainty.cdf(x));
+	let betOn = 0;
+
+	
+	const kelly = (p, b) => p - (1 - p) / b;
+	const profitFn = k => Integral.integrate(x => {
+		let p = betOn ? 1 - P(x) : P(x);
+		let bet = k * kelly(p, returnFraq[betOn]);
+		return bet * p * returnFraq[betOn];
+	}, dists.range.min, dists.range.max);
+	if (profitFn(1) < 0)
+		betOn = 1;
+
+	let minX = 0, minY = 0;
+	let maxX = 1, maxY = profitFn(maxX);
+	let x, y;
+	for (let i = 0; i < 20; i++) {
+		x = (minX + maxX) / 2;
+		y = profitFn(x);
+		console.log([minX, x, maxX], [minY, y, maxY]);
+		if (y < maxY) {
+			minX = x;
+			minY = y;
+		} else if (y < minY) {
+			maxX = x;
+			maxY = y;
+		} else {
+			minX = (minX + x) / 2;
+			minY = profitFn(minX);
+			maxX = (maxX + x) / 2;
+			maxY = profitFn(maxX);
+		}
+	}
 }
 
 function winProbabilityMeanStd(dists, boN) {
@@ -331,8 +369,6 @@ while (true) {
 		console.log("```");
 	}
 
-	console.log("```py");
-	console.log(`${teams[0].name} 1:${(returnFraq[0]+1).toFixed(3)} vs 1:${(returnFraq[1]+1).toFixed(3)} ${teams[1].name}`);
 
 
 	const playerRatings = pids.map(l => l.map(p => allPlayers[p]));
@@ -343,48 +379,65 @@ while (true) {
 	// const { mean: p1, var: v1 } = winProbabilityMeanStd(WP1Dists, x => x);
 	// console.log(p1, Math.sqrt(v1));
 
-	const bets = [];
 
-	for (let j = 1; j <= 2; j++) {
-		for (let i = j == 2 ? 7 : 1; i < 8; i += 2) {
-			const boNFirst = bestOfN(i);
-			let boN = boNFirst;
-			if (j == 2) {
-				const bo3Set = bestOfN(3);
-				boN = x => bo3Set(boNFirst(x));
+	for (let printFirstGameWin = 1; printFirstGameWin >= 0; printFirstGameWin--) {
+		const bets = [];
+		console.log("```py");
+		console.log(`${teams[0].name} 1:${(returnFraq[0]+1).toFixed(3)} vs 1:${(returnFraq[1]+1).toFixed(3)} ${teams[1].name}`);
+		for (let j = 1; j <= 2; j++) {
+			for (let i = j == 2 ? 7 : printFirstGameWin ? 5 : 1; i < 8; i += 2) {
+				for (let firstGame = -printFirstGameWin; firstGame <= printFirstGameWin; firstGame++) {
+					const boNFirst = bestOfN(i, firstGame);
+					let boN = boNFirst;
+					if (j == 2) {
+						const boNRest = bestOfN(i);
+						const bo3_1 = bestOfN(3, 1), bo3_0 = bestOfN(3, -1);
+						boN = p1 => {
+							const pFirst = boNFirst(p1), pRest = boNRest(p1);
+							return pFirst * bo3_1(pRest) + (1 - pFirst) * bo3_0(pRest);
+						};
+					}
+						
+					// optimalBet(WP1Dists, boN, returnFraq);
+
+					const { mean: pN, var: vN } = winProbabilityMeanStd(WP1Dists, boN);
+					
+
+					const kelly = (p, b) => p - (1 - p) / b;
+					let b = returnFraq[0], pK = pN, bet = kelly(pK, b), betOn = 0;
+					if (bet < 0) {
+						b = returnFraq[1];
+						pK = 1 - pN;
+						bet = kelly(pK, b);
+						betOn = 1;
+					}
+
+					const yoloBet = bet;
+					// https://www.researchgate.net/publication/262425087_Optimal_Betting_Under_Parameter_Uncertainty_Improving_the_Kelly_Criterion
+					bet *= bet*bet / (bet*bet + ((b+1)/b)**2 * vN);
+
+					let name = `BO${i}`;
+					if (printFirstGameWin)
+						name += firstGame ? `+${shortnames[firstGame == 1 ? 0 : 1].substring(0, 3).padEnd(3)}` : "    ";
+					name +=  ` ${j == 1 ? "  " : "S" + j}`;
+					
+					// console.log(`${name}  p=${pN.toFixed(3).substr(1)} σ=${Math.sqrt(vN).toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
+					console.log(`${name}  p=${pN.toFixed(3).replace("1.000", "1.00")} σ=${Math.sqrt(vN).toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% on ${shortnames[betOn]}`);
+					bets.push({
+						name: name,
+						p: pN,
+						s: Math.sqrt(vN),
+						bet: bet,
+						on: shortnames[betOn]
+					});
+				}
 			}
-				
-			const { mean: pN, var: vN } = winProbabilityMeanStd(WP1Dists, boN);
-			
-
-			const kelly = (p, b) => p - (1 - p) / b;
-			let b = returnFraq[0], pK = pN, bet = kelly(pK, b), betOn = 0;
-			if (bet < 0) {
-				b = returnFraq[1];
-				pK = 1 - pN;
-				bet = kelly(pK, b);
-				betOn = 1;
-			}
-
-			const yoloBet = bet;
-			// https://www.researchgate.net/publication/262425087_Optimal_Betting_Under_Parameter_Uncertainty_Improving_the_Kelly_Criterion
-			bet *= bet*bet / (bet*bet + ((b+1)/b)**2 * vN);
-
-			const name = `BO${i} ${j == 1 ? "  " : "S" + j}`;
-			// console.log(`${name}  p=${pN.toFixed(3).substr(1)} σ=${Math.sqrt(vN).toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% (yolo ${(yoloBet*100).toFixed(2).padStart(5)}%) on ${shortnames[betOn]}`);
-			console.log(`${name}   p=${pN.toFixed(3).substr(1)} σ=${Math.sqrt(vN).toFixed(3).substr(1)}   Bet ${(bet*100).toFixed(2).padStart(5)}% on ${shortnames[betOn]}`);
-			bets.push({
-				name: name,
-				p: pN,
-				s: Math.sqrt(vN),
-				bet: bet,
-				on: shortnames[betOn]
-			});
 		}
+		console.log("```");
+
+		for (line of bets)
+			console.log(`${line.name}   Bet ${Math.min(250000, line.bet*points*1000).toFixed(0).padStart(6)} on ${line.on}`);
 	}
-	console.log("```");
-	for (line of bets)
-		console.log(`${line.name}   Bet ${Math.min(250000, line.bet*points*1000).toFixed(0).padStart(6)} on ${line.on}`);
 }
 
 
